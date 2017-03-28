@@ -1,0 +1,257 @@
+\documentclass[mscThesis.tex]{subfiles}
+
+\begin{document}
+
+\chapter{Segmented active reward learning}
+\label{chap:SARL}
+In previous work \cite{Daniel2015}, as well as in the algorithm treated in Chapter \ref{chap:ARL}, the expert ratings are based on the display of a complete trajectory. In this chapter, we will show a new algorithm that actively demonstrates parts of a trajectory in order to improve the performance in those areas. We will intent to make the algorithm more focused on the trajectory segments that are important to the expert, as well as reduce the complexity for the expert. In order to do so, we will need to adapt some core parts of the algorithm displayed in Chapter \ref{chap:ARL}. First off, the reward model that is used in ARL needs to be extended. Instead of using a single Gaussian process for the complete trajectory, we will construct a reward model based on segment specific Gaussian processes. Another key aspect of the active reward learning algorithm, the acuqisition function will be altered as well. 
+
+In Section \ref{sec:rm-ext}, we will explain how the novel reward model is constructed and how the features of this new model are rearranged. We then continue in Section \ref{sec:epd-ext} by explaining how to use the expected policy divergence function on a multi segment level.
+
+\section{Expert rating over segments}
+% motivation
+There are two main reasons why it is interesting to investigate segment based expert queries. First off, we are able to acquire information about the reward function that is more specific. In most robotic tasks there are parts that are critical for the performance and parts that are not that important. By querying only the parts of the task that are critical for performance, we effectively apply a filter for non-relevant information for the reward model. In other words, we can make our reward model more focused. 
+
+Another benefit of segment specific demonstrations can be found when we consider the expert. Human experts only have a limited capacity for judging performances. In our case, the human expert will make judgement errors if the amount of demonstrations becomes too big. The amount of different demonstrations that a human can distinguish is also called the bandwidth. This bandwidth is not a fixed value, but depends on a lot of factors. Intuitively, it is clear that we should aid the expert as best as we can in the presentation of our demonstrations. Besides visual aids, it is also important that the expert can focus on the parts of the trajectory that are really critical for performance. Segment specific demonstrations can be an important factor for increasing the bandwidth of the expert. This is especially interesting when we consider a multi-task objective, such as a double viapoint or a viapoint/viaplane objective. In this scenario, the expert can focus on increasing the performance for one task per demonstration, provided that the different tasks are separated into different time segments.  
+
+\section{Multi GP reward model}
+\label{sec:rm-ext}
+In this section, we will revisit the reward model as shown in Chapter \ref{chap:ARL}. There is a major difference needed to model the results of segment specific demonstrations. 
+
+Similar to the reward model discussed in Chapter \ref{chap:ARL}, each trajectory is first pre-processed. The first step is to cut each trajectory into different time segments. We consider four different, equally spaced time segments as this is how we conduct our the experiments but the reward model holds for any number of non equally spaced segments as well. 
+
+After that, feature functions are evaluated for each different time segment that we specified. We use the same feature functions as discussed in Chapter \ref{chap:ARL}.
+
+For each time segment we will construct a different GP, taking only the feature functions for that specific time segment as input argument. Each segment specific GP also holds a segment specific set of demonstrations $\mathcal{D}^{(i)} = \{ \{\bm{\tau}^{i}_1, R^{(i)}_{E_1}\}, ..., \{ \bm{\tau}^{(i)}_n, R^{(i)}_{E_n} \} \}$. Note that not every segment needs to have the same number of demonstrations. Typically, the time segments which are critical for the objective hold a much larger set of demonstration compared to other time segments. Each time-specific GP will produce an estimate of the reward for its time segment upon evaluation. In order to obtain the total return for the trajectory, we simply add up the rewards of all the time segments.
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[->, >=stealth']
+
+\node[](arrow-trajectory){};
+
+\node[	state,
+		right of = arrow-trajectory,
+		node distance = 2 cm
+		] (segmentation) {
+ 	segmentation
+};
+ 
+\node[	state,
+        text width = 2cm,
+		above right = 1.5cm and 2cm of segmentation] (feature1) { 
+	feature block 1
+}; 
+ 
+ \node[	state,
+        text width = 2cm,
+        above right = 0cm and 2cm of segmentation
+		] (feature2) { 
+	feature block 2
+}; 
+ 
+% \node[	state,
+%        text width = 2cm,
+%        below right = 0cm and 2cm of segmentation
+%		] (feature3) { 
+%	feature block
+%}; 
+
+\node[	align = center,
+        text width = 2cm,
+        below right = 0cm and 2cm of segmentation
+		] (dots1) { 
+	$\vdots$
+}; 
+ 
+ \node[	state,
+        text width = 2cm,
+        below right = 1.5cm and 2cm of segmentation
+		] (feature4) { 
+	feature block $n_s$
+}; 
+ 
+ \node[	state,
+		right of = feature1,
+		node distance = 4 cm] (reward1) { 
+	GP 1
+}; 
+ 
+ \node[	state,
+		right of = feature2,
+		node distance = 4 cm] (reward2) { 
+	GP 2
+}; 
+ 
+% \node[	state,
+%		right of = feature3,
+%		node distance = 4 cm] (reward3) { 
+%	GP
+%}; 
+
+\node[	align = center,
+        right of = dots1,
+		node distance = 4 cm
+		] (dots2) { 
+	$\vdots$
+}; 
+ 
+ \node[	state,
+		right of = feature4,
+		node distance = 4 cm] (reward4) { 
+	GP $n_s$
+};
+ 
+ \node[  circle,
+        inner sep = 0.2cm,
+        line width = 1pt,
+        draw=black!100,
+        right of = segmentation,
+        node distance = 11 cm] (sum) {
+ 
+        $\sum$
+};
+
+\node[right of = sum, node distance = 2 cm](arrow-sum){};
+ 
+  
+\path 	
+        (arrow-trajectory)  edge 
+                            node[anchor = south]{$\bm{\tau}$} 
+                                    (segmentation)
+        (feature1)	        edge
+				            node[anchor = south]{$\bm{\phi}^{(1)}$}	 			
+ 									(reward1)
+ 	    (feature2)          edge
+ 	                        node[anchor = south]{$\bm{\phi}^{(2)}$}	 
+ 	                                (reward2)
+% 	    (feature3)          edge
+% 	                        node[anchor = south]{$\bm{\phi}^{(3)}$}	 
+% 	                                (reward3) 	     
+ 	    (feature4)          edge
+ 	                        node[anchor = south]{$\bm{\phi}^{(n_s)}$}	 
+ 	                                (reward4)  
+ 	    (sum)          edge
+ 	                        node[anchor = south]{$R(\bm{\tau})$}	 
+ 	                                (arrow-sum)                            
+ 	                                
+ 		;
+ 		
+\draw [ ->] 
+(segmentation.north)
+|- node [near end, anchor = south] {$\bm{\tau}^{(1)}$} (feature1.west);
+
+\draw [ ->]
+(segmentation.north)
+|- node [near end, anchor = south] {$\bm{\tau}^{(2)}$}  (feature2.west);
+
+%\draw [ ->]
+%(segmentation.south)
+%|- node [near end, anchor = south] {$\bm{\tau}^{(3)}$} (feature3.west);
+
+\draw [ ->]
+(segmentation.south)
+|- node [near end, anchor = south] {$\bm{\tau}^{(n_s)}$} (feature4.west);
+
+\draw [ ->]
+(reward1.east)
+-| node [near start, anchor = south] {$R^{(1)}$} (sum.north);
+
+\draw [ ->]
+(reward2.east)
+-- ++(0.5, 0)
+-- node [pos = 0.01, anchor = south] {$R^{(2)}$} (sum.north west);
+
+%\draw [ ->]
+%(reward3.east)
+%-- ++(0.5, 0)
+%-- node [pos = 0.01, anchor = north] {$R^{(3)}$} (sum.south west);
+
+\draw [ ->]
+(reward4.east)
+-| node [near start, anchor = south] {$R^{(n_s)}$} (sum.south);
+ 		
+\end{tikzpicture}
+\caption{Segmented reward model}
+\label{fig:segmented-rm}
+\end{figure}
+
+\section{Demonstration acquisition over multiple segments}
+\label{sec:epd-ext}
+In this section, the demonstration acquisition algorithm is revisited. We need a new algorithm for determining which trajectory segment is interesting for demonstration. This is in contrast to the acquisition function described in Chapter \ref{chap:ARL}, which dealt with complete trajectories. 
+
+However, we will reuse the basic idea of expected policy divergence as our measure of acquisition. 
+
+We start by considering a set of sampled trajectories $\mathcal{T}$ as before. Furthermore, we have a reward model consisting of four GPs, each of which has a different set $\mathcal{D}^{(i)}$ of demonstrations. We would like to know which trajectory segment is most important for acquisition. To accomplish this, we have to calculate the expected policy divergence of each trajectory segment $\bm{\tau}^{(i)}_j \in \bm{\tau}_j$ for all trajectories $\bm{\tau}_j \in \mathcal{T}$. Let us consider a single trajectory segment $\bm{\tau}_j^{(i)}$. We can calculate the reward approximation by evaluating the GP for segment $i$ accordingly:
+
+\begin{equation*}
+    \mu, \sigma = \mathcal{GP}^{(i)} (\bm{\tau}^{(i)}_j | \mathcal{D}^{(i)})
+\end{equation*}
+
+The GP will give us a mean value and the variance. In order to obtain an approximation of the expected expert rating, we compute two sigma points for each trajectory segment: $s_+=\mu+\sigma$, $s_-=\mu-\sigma$. We will then look at the consequence of adding one of these sigma points to the reward model. So let us assume one sigma point $s$ is added to the set of demonstrations of that particular trajectory: 
+
+\begin{equation*}
+    \mathcal{D}^{(i)*}=\{ \mathcal{D}^{(i)} \cup s \}
+\end{equation*}
+
+The reward model now consists of three unaltered GPs and one altered GP which contains the sigma point. We continue by calculating the total return of each trajectory according to this altered reward model. 
+
+\begin{equation*}
+    \bm{R}^{*} = \mathcal{GP}^{(i)} (\mathcal{T}^{(i)} | \mathcal{D}^{(i)*}) +  \sum_{k=1, k\neq i}^{n_s} \mathcal{GP}^{(k)} (\mathcal{T}^{(k)} | \mathcal{D}^{(k)}) 
+\end{equation*}
+
+Alternatively, we can calculate the reward of every trajectory in set $\mathcal{T}$ according to the unaltered reward model as well:
+
+\begin{equation*}
+    \tilde{\bm{R}} =  \sum_{k=1}^{n_s} \mathcal{GP}^{(k)} (\mathcal{T}^{(k)} | \mathcal{D}^{(k)}) 
+\end{equation*}
+
+After obtaining the return values according to the unaltered and altered reward models, we proceed as described in Section \ref{sec:epd} by evaluating the policy update functions and compare the results with the Kullback-Leibler divergence measure. We repeat this procedure twice, since we have two sigma points for each trajectory segment at our disposal. The acquisition value for a trajectory segment is the average of the two resulting EPD values. 
+
+\section{Summary}
+In this chapter a new algorithm for segmented active reward learning is presented. This new algorithm is capable of learning a task based on segment specific rating method. 
+
+In order to support segment specific demonstrations we have created a reward model which is based on multiple Gaussian processes, each one dedicated to a specific trajectory segment. In order to calculate the return over complete trajectories a simple summation over the result of the different GPs suffices. 
+
+The acquisition function of the standard active reward learning algorithm is adapted, such that it returns the acquisition value of a trajectory segment instead of a full trajectory. This new acquisition function is still based on the expected policy divergence principle but allows the algorithm to choose the most interesting trajectory segment. After choosing the most interesting segment for acquisition, the robot will demonstrate this part of the trajectory and add it to the GP dedicated to its respective segment as shown in Algorithm \ref{alg:ARL-ext}.
+
+\begin{algorithm}[!ht]
+\caption{Basic ARL pseudo code}
+\label{alg:ARL-ext}
+\begin{algorithmic}
+\State initialize policy $\pi(\bm{\theta}_0)$
+\State initialize reward model $\mathcal{D}^{(1)},..., \mathcal{D}^{(n_s)}$
+
+\State
+
+\While{not converged}
+
+\State Sample $K$ rollouts
+\State $\mathcal{T} = \left\{\bm{\tau}_1, ..., \bm{\tau}_K \right\}$
+\State
+\State FindNominee = true
+\While{FindNominee}
+\State Nominated outcome:
+\State $\bm{\tau}_{+}^{(i)} = \argmax_{\bm{\tau}^{(i)} \in \bm{\tau}, \forall \bm{\tau} \in \mathcal{T}} u(\bm{\phi}(\bm{\tau}^{(i)}))$  (See Section \ref{sec:epd-ext})
+\State
+\If {$\bm{\tau}_{+}^{(i)} \notin \mathcal{D}^{(i)} \land u(\bm{\phi}(\bm{\tau}_{+}^{(i)}) > \lambda$}
+\State Demonstrate segment $\bm{\tau}^+_s$ to expert. Retrieve $R_E^+$
+\State $\mathcal{D}^{(i)} = \mathcal{D}^{(i)} \cup \left\{ \bm{\phi}(\bm{\tau}_{+}^{(i)}) , R_{E_+}\right\}$
+\Else
+\State FindNominee = false
+\EndIf 
+\EndWhile
+\State Optimize $\mathcal{GP}$ hyper parameters (See Section \ref{sec:hyper-opt})
+\State
+\State Calculate return trajectories $\mathcal{T}$
+\State $R(\bm{\tau}) = \sum_{i=1}^{n_s} \mathcal{GP}^{(i)} (\bm{\tau} | \mathcal{D}^{(i)}), \forall \bm{\tau} \in \mathcal{T}$
+\State Update policy $\pi (\bm{\theta})$ (See Section \ref{sec:PIBB})
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+% Bibliography
+%\bibliographystyle{ieeetr}
+%\printbib{bibliography}
+
+\end{document}

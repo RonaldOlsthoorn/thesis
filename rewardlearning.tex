@@ -1,0 +1,120 @@
+\documentclass[mscThesis.tex]{subfiles}
+
+\begin{document}
+
+\chapter{Reward learning}
+\label{chap:Reward}
+The reward function plays an important role in any RL and optimal control method. In many practical applications, programming and tuning the reward function is a critical design step and this is mostly done by an engineer or programmer. Over the years, methods have been developed that try to construct a reward function, using information from an expert. A well studied method called inverse reinforcement learning, reconstructs a reward function based on expert example trajectories. More recent work has been published in the field of active reward learning, which is based on human expert feedback.
+
+In this Chapter we will review reward learning methods that are studied over the years. There are important similarities in a number of reward learning methods, which will be highlighted. 
+
+In the first section, different methods to interact with an expert are explained. Two different  methods of using the expert as a source of information are described. After that, the reward function will be revisited in Section \ref{sec:rewardstruct}. We continue by explaining the inverse reinforcement learning approach briefly in Section \ref{sec:irl}. In the last Section we will outline the basic algorithm of active reward learning.
+
+\section{Expert reward learning}
+\label{sec:expert}
+In order to obtain a suitable reward function without manual programming, an expert can be used. This expert does not have to be a programmer, it can be a human that knows how to execute a specific task very well. In literature, two methods to obtain a reward function are studied: learning by expert example and learning by expert feedback. 
+
+\subsection{Example trajectories}
+\label{ssec:example}
+Since the resulting policy of any RL agent is based on optimizing the reward function, examples of well executed trajectories contain information about the underlying reward function. We can use an expert to provide us with (sub-) optimal examples trajectories to teach a movement to an RL agent. Such an example trajectory can be written as a sequence of state-action pairs. Usually, a batch of these trajectories is gathered: $\mathcal{T}_E = \left\{ \bm{\tau}_1, ..., \bm{\tau}_m \right\}$.
+
+There are several ways expert trajectories can be obtained in practice as described in \cite{Argall2009}. Four categories of gathering expert trajectories can be distinguished:
+
+\begin{description}
+\item [Teleoperation] An expert operates the robot via teleoperation. The measurements from the robot joints or end effector can directly be used as examples trajectories. No mapping is needed from the state-space of the teacher to the robot, which is the reason this method is often used. However, teleoperation requires that
+operating the robot be manageable, which can be problematic for some systems. For example, if we want to record joint motion on a robotic arm which happened to have more joints than a human arm.
+\item [Shadowing] While an expert demonstrates a certain behavior, the robot tries to mimic the movement. As with teleoperation, the measurements from the robot can be used as example trajectories. In this approach, the quality of the expert examples is limited to the accuracy of the mimic algorithm used. 
+\item [Sensors on teacher] The human expert demonstrates a specific movement with sensors attached to its body. This data must be mapped to the joint or end effector space of the robot, before it is used as example trajectory. 
+\item [External observation] An expert demonstrates a certain behavior without any sensors attached. The robot tries to extract the state/actions from external observations, such as a camera. In this case, a mapping must be made from the external sensors to the state-action space of the expert as well as a mapping from the state-action space of the teacher to the robot. 
+\end{description}
+
+\subsection{Expert queries}
+As explained in the previous section, obtaining high quality example trajectories can be problematic in practice. However, there are more ways we can extract information from the expert as human experts are able to distinguish desired and undesired behavior. According to Miller \cite{miller1956magical}, several studies have shown that the capacity for a human to judge different stimuli, the so called channel capacity, is between 1.6 and 3.9 bits for a two dimensional representation. 
+
+A safe option would be let the expert distinguish trajectories in a binary fashion, only giving the expert the options ``better'' or ``worse'' on a pair of rollouts. Since this setting operates below the channel capacity, the expert would always succeed. However, such a setup would only give one bit of information for two demonstrations, which is extremely low. In this work, demonstrations are rated in a scale of the expert's choice, displaying the previous ratings in the background to maximize the expert's channel capacity.
+
+Instead of using a set of example trajectories, the active reward learning algorithm uses a dynamic set of demonstrated trajectories and their respective expert rating: 
+
+\begin{equation*}
+    \mathcal{D}_E = \left\{ \left\{ \bm{\tau}_1, R_{E_1} \right\}, ..., \left\{ \bm{\tau}_m, R_{E_m} \right\} \right\}
+\end{equation*}
+
+This approach has been studied in order to teach a grasping task to a KUKA lightweight arm \cite{Daniel2015}.
+
+\section{Reward function structure}
+\label{sec:rewardstruct}
+Before we describe the various methods that can achieve reward learning, we review the approximation techniques that are used to construct the reward function. Since we cannot consider an infinite space of possible reward functions, simplifications must be made regarding the structure of the reward function. 
+
+\subsection{Discrete reward table}
+In discrete state MDPs, there is the option of defining a reward value for each possible state of the MDP $r( \bm{x}_i) = r_{i},  \forall  \bm{x}_i \in X $. These reward functions are agnostic about the underlying dynamics of the reward function \cite{AbbeelRussel2000} \cite{RamachandranAmir2007}. Usually, the resulting reward functions assign a high value for a small set of highly desirable state, whilst assigning zero or near zero reward for the rest of the state space. 
+
+\subsection{Linear combination of features}
+When a reward value must be assigned for each state in an MDP, the amount of optimization variables for a reward learning algorithm can grow out of proportion. For continuous state-space MDPs this approach is impossible. Besides that, the underlying dynamics for reward remain unknown after learning the reward function. Both disadvantages can be alleviated by the introduction of candidate reward functions, also referred to as \emph{feature functions}. Inspired by the task at hand, several feature functions can be constructed as $\bm{\phi} ( \bm{x}, \bm{u} )$, where each element of vector $\bm{\phi}$ is a different candidate reward function. In order to obtain an approximation of the true reward function, we define a weight vector $\bm{w}$ and construct the reward function as a linear combination of feature functions $r(\bm{x}, \bm{u}) = \bm{w}^T \bm{\phi} ( \bm{x}, \bm{u} )$. Using a linear combination of feature functions and weights reduces the reward learning problem to finding the optimal weight vector $\bm{w}$.  This approach is applied in most IRL algorithms, both in discrete and continuous state-space \cite{zhifei2012review}.
+
+\subsection{Non-linear function of features}
+Besides using a linear combination of features as a reward function, some IRL methods use non-linear function approximators. For example, Dvijotham uses adaptive radial basis functions in state-space to construct a value function. From this value function a reward function is derived using the Hamilton-Jacobi-Bellman equations \cite{dvijotham2010inverse}. 
+
+Several works use Gaussian Processes (GP) to model a non-linear relation between features and reward in different ways. For instance, Levine et al \cite{Levine2011} use this model to learn a function between the features at a certain state and the reward at that state $r(\bm{x}, \bm{u}) = \mathcal{GP}(\bm{\phi}(\bm{x}, \bm{u}))$. In discrete MDPs, it is possible to model a different reward function for each possible action in the action space. Following this approach, a GP for each action $\bm{u} \in U$ can be trained that maps states to rewards $r_{\bm{u}_i}(\bm{x}) = \mathcal{GP}(\bm{x})_{\bm{u}_i} \forall \bm{u}_i \in U$ \cite{qiao2011inverse}. 
+
+Instead of modeling a reward for each state, it is also possible to model the a non-linear relation between the features and the return of complete trajectories. The active reward learning technique described in \cite{Daniel2015} uses a GP to learn such a relation $R(\bm{\tau}) = \mathcal{GP}(\bm{\phi}(\bm{\tau}))$, since in active reward learning the return of demonstrated trajectories is given by the expert.
+
+
+\section{Inverse reinforcement learning}
+\label{sec:irl}
+In literature, learning from expert examples is shown in several different methods. Some methods that try to recover the relation between states and actions, based on expert examples, are known as apprenticeship learning methods. Applications used to demonstrate apprenticeship learning include a pendulum swing-up task \cite{atkeson1997robot}, segway control \cite{browning2004skill}, grasping tasks \cite{sweeney2007model} and an egg flipping task \cite{pook1993recognizing}. One disadvantage of this approach is that the resulting policies do not generalize over changing environments. If we want to teach a RL agent a specific task, a well defined reward function should be sufficient, regardless of the environment.
+
+\subsection{IRL problem statement}
+%Goal of IRL
+The goal of inverse reinforcement learning is to create a reward function based on expert examples. This process can be divided into two parts: example acquisition (see Section \ref{ssec:example}) and reward function deduction. In general, the approach of the second part is to come up with a reward function such that the example trajectories are optimal the optimal solution of a standard RL problem. 
+
+% Ill posedness
+ It can easily be observed that any reward learning problem, including inverse reinforcement learning and active reward learning, is ill-posed. Multiple reward functions exist that return an optimal reward for the set of examples $\mathcal{T}_E$. For example if we consider a reward function for which $r(\bm{x}, \bm{u}) = 0$ for each state and action, any trajectory in state-action space is an optimal trajectory and therefore this reward function is always a valid solution of the inverse reinforcement learning problem. 
+
+\subsection{Maximum margin planning}
+Several IRL algorithms have been developed over the years, all of which try to enforce a unique reward function as result. There is no standard formulation to describe the optimization problem of IRL. Each method defines what it considers to be a ``good'' resulting reward function differently. 
+
+For instance the max-margin planning method tries to maximize the gap between the reward of the examples (the optimal solution) and all other possible policies \cite{RatliffBagnell2006}. In a discrete state-space MDP, this optimization problem can be solved using a gradient descent method. A more advanced method called LEARCH \cite{Ratliff2009}, by the same authors extends this method to incorporate non-linear reward functions as well. Applications using this approach include route planning for an autonomous vehicle, quadrupedal locomotion planning and a grasping task. All of these problems are solved as a planning problem in discrete state-space. 
+
+
+\subsection{Bayesian IRL}
+%Stochastic approach.
+Other IRL methods take a stochastic approach for defining a good reward function. In this group of methods, the expert examples are seen as evidence that the reward of these trajectories should be high. Using this line of thought we can construct probability distributions as such: $P(r | \mathcal{T}_E)$. This is the probability of reward function $r$ being the ``true'' reward function given the set of expert examples $\mathcal{T}_E$. If we can calculate or approximate this probability, we can define the IRL problem as to maximize this probability with respect to the reward function $\max_r \left(P(r | \mathcal{T}_E) \right)$. In this class of methods, the reward function is modeled as a vector, containing a reward value for each state in discrete state. We can use Bayes' rule to expand the objective function, transforming it into a maximum a posteriori. This is the reasoning behind the Bayesian IRL method \cite{RamachandranAmir2007} and Preference Elicitation IRL \cite{rothkopf2011preference}. The latter method is extended to a multi-task IRL algorithm \cite{dimitrakakis2011bayesian}.
+
+
+\subsection{Entropy based IRL methods}
+In contrast to Bayesian probability algorithms, entropy based IRL methods reverse the reasoning of the stochastic IRL problem. Instead of maximizing the probability of a reward function under condition of the examples, entropy based methods maximize the probability of the examples under condition of a reward function $P(\mathcal{T}_E | r)$. More specifically, the entropy of this distribution is maximized under certain constraints: $\max \log (P(\mathcal{T}_E | r))$ \cite{Ziebart2008}. The reward model in this case is modeled as a linear combination of feature functions, $r = \bm{w}^T \bm{\phi}(\bm{x})$, so we are looking for the optimal $\bm{w}$. This optimization problem can be solved using the gradient of the cost function, which can be obtained using the visiting frequencies of each state in discrete state space per trajectory. An interesting extension to this method is relative entropy IRL \cite{Boularias2011}. This method minimizes the relative entropy between two probability distributions of $P(\bm{\tau})$ and $Q(\bm{\tau})$, where $P(\bm{\tau})$ is the new distribution under reward $r$ and $Q(\bm{\tau})$ is the distribution of a baseline policy. There are some reasons to prefer the relative entropy method over the maximum entropy method, the most important being that relative entropy IRL is a model-free method.
+
+\subsection{Non-linear IRL}
+Besides Bayesian and entropy based methods, several other works have been published about IRL. These methods often use non-linear models to construct the resulting reward function. 
+
+For linearly solvable MDPs, an IRL method is developed that derives the reward function from the value function \cite{dvijotham2010inverse}. It is possible to learn a value function with adaptive radial basis functions and using the Hamilton-Jacobi-Bellman equations we can calculate the reward function accordingly. The inference method of this technique is very similar to maximum entropy IRL, since the probabilities of expert trajectories being taken by a RL agent is maximized: $\max_{\bm{w}} \log P(\mathcal{T}_E | \bm{w})$, where $\bm{w}$ are the parameters of the radial basis functions. 
+
+Other non-linear IRL methods primarily use Gaussian processes to model the reward function. In discrete MDPs, this is done in a Bayesian setting \cite{qiao2011inverse}. In this particular method, there exists a GP for each action in $U$. Each GP gives the reward of taking their corresponding action $\bm{u}$, given a state $\bm{x}$. The training points for the GP are constructed using a preference graph.
+
+In continuous state-action MDPs, no finite set of GPs can be constructed to represent the reward function. Instead, we can use feature functions and train a GP to map the features to rewards $r(\bm{x}, \bm{u}) = \mathcal{GP}(\bm{\phi}(\bm{x}, \bm{u}))$ \cite{Levine2011}. In order to construct a GP that is capable of doing this, we need a set of training points $\{\{\bm{\phi}(\bm{x}_1, \bm{u}_1), r_1\},...,\{\bm{\phi}(\bm{x}_m, \bm{u}_m), r_m\}\}$. As inputs for our training set we can take points along the example trajectories plus a few random points in state-action space. The corresponding rewards for these points $\{r_1,...,r_m\}$ along with all the hyper parameters of the GP itself are the parameters that we optimize for. The inference distribution is similar to the maximum entropy method. We can use the LFBG method to solve this optimization problem.  
+
+\subsection{IRL in robotics}
+Not many IRL methods have been implemented in robotic applications yet. The vast majority of publications use discrete grid worlds to compare their respective results with other methods. However, there are interesting applications outside the field of robotics where inverse reinforcement learning showed nice results. A comparative study over IRL methods, showed that IRL can recover the reward of decision making problems very well by learning the strategies of table tennis players \cite{muelling2014learning}.
+
+There are multiple reasons for the lack of applicability in continuous applications. First off, the vast majority of IRL methods require solving the forward RL problem for every iteration, which is either an intense computational burden in simulators. If there is no model or simulator available, such an approach is unfeasible because real-life rollouts are very costly to perform, both in terms of hardware (which can break) as in computation time (rollouts are very slow). One IRL method is an exception to this rule: the $\text{PI}^2$ variant of maximum entropy IRL \cite{Kalakrishnan2013}. 
+
+The second disadvantage, which is apparent in most IRL methods, is the need of a model. Usually, modeling the environment of a robot is costly, moreover the environment can change over time. Also, by using a model for learning the reward, one of the biggest advantages of RL is canceled out. 
+
+The last disadvantage of the IRL approach is inherent to its use of expert examples. In real life applications, expert examples are often imperfect or incomplete, only a sub optimal policy is available. For most IRL methods, the example trajectories are considered as the correct behaviors. However, only a notion of what is the correct behavior limits the information for the agent. In many tasks, examples of failed attempts can be at least as valuable if the RL agent learns how to actively avoid this behavior. 
+
+\section{Active reward learning}
+\label{sec:arl}
+As mentioned before in Section \ref{sec:expert}, the active reward learning method is based on learning a reward function from expert ratings. In this method, a non-parametric model is used to map the features $\bm{\phi}$ to reward values, using the expert ratings as training samples. Another important aspect of active reward learning with respect to inverse reinforcement learning is that in active reward learning, both the reward function as well as a (sub) -optimal policy is learned in hybrid fashion.
+
+\subsection{Reward model}
+The reward function used in active reward learning is modeled as a Gaussian process, a non-parametric statistical model \cite{rasmussen2006book}. Gaussian processes can be used to learn non-linear relations, in case of active reward learning, to learn a relation between feature functions and return: $R( \bm{\tau} ) = \mathcal{GP}(\bm{\phi}(\bm{\tau}))$. We will use the expert ratings obtained in demonstrations $\mathcal{D}$ as learning samples for the reward model. The GP reward model can give an estimate for the return of non-demonstrated trajectories, which we need for learning the policy, as well as an indication of the variance for this estimate. The latter is particularly handy for the ARL algorithm to determine which rollouts are interesting for expert querying.
+
+\subsection{Forward learning method}
+Since the reward model only gives a return according to a complete trajectory, this has implications for the forward RL method that we can use in combination with active reward learning. In fact, only black-box policy learning techniques can be used within active reward learning \cite{Daniel2015}.      
+
+% Bibliography
+%\bibliographystyle{ieeetr}
+%\printbib{bibliography}
+%
+
+\end{document}

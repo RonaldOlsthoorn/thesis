@@ -1,0 +1,654 @@
+\documentclass[mscThesis.tex]{subfiles}
+
+\begin{document}
+
+\chapter{Active reward learning}
+\label{chap:ARL}
+
+The active reward learning method \cite{Daniel2015} is a relatively recent machine learning algorithm designed to learn a reward function using expert feedback. In this chapter, the active reward learning algorithm will be explained. Also, we will explain how to apply this algorithm for teaching a robotic task described in Chapter \ref{chap:Int} using only expert feedback as a source of information. 
+
+In Section \ref{sec:basic-arl}, we will first present the basic ARL algorithm, to give a good overview of this method. After that, we will specify how the different parts of this algorithm work in detail. We continue in Section \ref{sec:robotic-task} by explaining how we apply the ARL to a robotic system. By examining the properties of the task we teach the robot, we can already construct a set of feature functions. In Section \ref{sec:GP} we explain how the reward model works in more detail. The statistical inference model that we use, the Gaussian process will be introduced. We will elaborate upon the details of using this framework to our purpose as well. We will finish this chapter in Section \ref{sec:acquisition} by explaining how the query acquisition method works.
+
+\section{Basic ARL algorithm}
+\label{sec:basic-arl}
+In Algorithm \ref{alg:ARL}, the basic algorithm of active reward learning is on display. As can be seen, the algorithm starts with sampling a number of demonstrations to initialize the reward function. After that, an iterative procedure begins which include three steps: sampling, reward update and finally policy update. In the first step, a number of rollouts are sampled according to a stochastic policy. After that, we investigate if any of these sampled rollouts are worth demonstrating. If this is the case, we demonstrate one or more rollouts and obtain a rating for these samples. After that, the reward model is updated by including the recently obtained ratings. If there are no interesting samples, the reward model is not updated. After updating the reward model, a policy update is executed according to our forward reinforcement learning algorithm (see Algorithm \ref{alg:PIBB}).
+
+
+\begin{algorithm}[!ht]
+\caption{Basic ARL pseudo code}
+\label{alg:ARL}
+\begin{algorithmic}
+\State initialize policy $\pi(\bm{\theta}_0)$
+\State initialize reward model $\mathcal{D} = \mathcal{D}_0$
+
+\State
+
+\While{not converged}
+
+\State Sample $K$ rollouts
+\State $\mathcal{T} = \left\{\bm{\tau}_1, ..., \bm{\tau}_K \right\}$
+\State
+\State FindNominee = true
+\While{FindNominee}
+\State Nominated outcome:
+\State $\bm{\tau}_+ = \argmax_{\bm{\tau} \in \mathcal{T}} u(\bm{\phi}(\bm{\tau}))$  (See Section \ref{sec:acquisition})
+\State
+\If {$\bm{\tau}_+ \notin \mathcal{D} \land u(\bm{\phi}(\bm{\tau}_+)) > \lambda$}
+\State Demonstrate $\bm{\tau}_+$ to expert. Retrieve $R_{E_+}$
+\State $\mathcal{D} = \mathcal{D} \cup \left\{ \bm{\phi}(\bm{\tau}_+), R_{E_+} \right\}$
+\Else
+\State FindNominee = false
+\EndIf 
+\EndWhile
+\State Optimize $\mathcal{GP}$ hyper parameters (See Section \ref{sec:hyper-opt})
+\State
+\State Calculate return trajectories $\mathcal{T}$
+\State $R(\bm{\tau}) = \mathcal{GP} (\bm{\tau}), \forall \bm{\tau} \in \mathcal{T}$
+\State Update policy $\pi (\bm{\theta})$ (See Section \ref{sec:PIBB})
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\section{Robotic task overview}
+\label{sec:robotic-task}
+In this section we will take a look at the robotic application. In order to give an impression of the interaction between the robot arm, the RL agent and the expert, a block diagram is on display in Figure \ref{fig:overview-robot}. 
+
+We would like to teach a robotic system simple end-effector trajectories. After running a specific trajectory on the robot arm, we will judge the robots performance according to the coordinates of the end-effector in Cartesian space. 
+
+In order to simplify the learning process, the policy of the reinforcement learning agent is designed to produce Cartesian trajectories as well. This design has the advantage that the number of policy parameters to be learned stays low compared to policy parameters in joint space. However, in doing so we lose the ability to teach the robot what trajectory in joint space should be preferred. 
+
+Trajectories that are specified in end-effector space cannot be used directly as motor commands. We need to map the trajectories produced by the policy to joint space using inverse kinematics. To do so, we use the Jacobian inverse kinematics method, assuming that the trajectories that we teach the robot are not in the neighborhood of singular positions.
+
+To the agent, the complete system of the inverse kinematics block, the robot and the forward kinematics block is one black box system from input trajectory to output trajectory.
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[->, >=stealth']
+
+\node[state,
+		text width = 2cm] (expert) {
+	Expert
+ };
+
+\node[	state,
+		below of = expert,
+		text width = 2cm,
+		node distance = 3 cm
+		] (reward) {
+ 	$R(\bm{\phi})$
+ };
+ 
+\node[	state,
+		left of = reward,
+				text width = 2cm,
+		node distance = 5 cm] (policy) { 
+	$\pi(\bm{\theta})$
+ }; 
+ 
+\node[ 	state,
+		below of = policy,
+				text width = 2cm,
+		node distance = 4 cm
+		] (ik) {
+	IK
+ };
+ 
+\node[ 	state,
+		right of = ik,
+				text width = 2cm,
+		node distance = 5 cm] (arm) {
+	Robot arm
+ };
+ 
+\node[ 	state,
+		right of = arm,
+				text width = 2cm,
+		node distance = 5 cm
+		] (fk) {
+	FK
+ };
+ 
+\node[ 	state,
+		above of = fk,
+				text width = 2cm,
+		node distance = 4 cm
+		] (feature) {
+ 	$\bm{\phi}(\bm{\tau})$
+ };
+  
+\path 	(expert)	edge[dashed, >=stealth']
+					node[]	
+ 						{\small reward update}	 			
+ 												(reward)
+ 		(reward) 	edge[dashed, >=stealth']
+ 					node[anchor = south]	
+ 						{\small policy update}
+ 											   	(policy)
+ 		(policy) 	edge 						
+ 					node[text width = 3 cm]	
+ 						{\small Cartesian input trajectory}
+ 												(ik)
+ 		(ik) 		edge
+ 		 			node[	anchor = south,
+ 		 					text width = 2 cm]	
+ 						{\small joint input trajectory}
+ 						 						(arm)						
+ 		(arm)		edge
+ 		 			node[	anchor = south,
+ 		 					text width = 2 cm]	
+ 						{\small joint output trajectory}
+ 						 						(fk)
+ 		(fk)		edge
+ 		 			node[text width = 3 cm]	
+ 						{\small Cartesian output trajectory}
+ 						 						(feature)
+ 		(feature)	edge
+ 					node[anchor = south]	
+ 						{\small features} 						
+ 												(reward);
+ 		
+\end{tikzpicture}
+\caption{Overview of the interaction between the robot, RL agent and the expert.}
+\label{fig:overview-robot}
+\end{figure}
+
+
+\subsection{Segmented feature functions}
+Feature functions are candidate reward functions that we use to simplify the reward learning problem, as discussed in Section \ref{sec:rewardstruct}. As we would like to distinguish different segments in each full trajectory, we will create a set of feature functions specific to each segment (see Figure \ref{fig:unsegmented-rm}). 
+
+We assume that we cannot program task specific parameters into our feature functions. For example if the task of a robot arm is to go to a specific point, we cannot program a feature that would measure the squared error with respect of that point. Instead we use feature functions that give a more global representation of the end-effector trajectory in Cartesian space. The trajectory is split up into a certain number of segments $n_s$. For each segment, we can extract features that summarize the position of the end effector:
+
+\begin{itemize}
+\item Mean $x$ position
+\item Mean $y$ position
+\item (Optionally) Variance of the $x$ position
+\item (Optionally) Variance of the $y$ position
+\end{itemize}
+
+We will conduct part of our experiments using only the mean positions of the end effector as feature functions. In some experiments we will include the variance of the end effector position as well. With this extended set of features we will be able to reward viaplane tasks with more accuracy. 
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[->, >=stealth']
+
+\node[](arrow-trajectory){};
+
+\node[	state,
+		right of = arrow-trajectory,
+		node distance = 2 cm
+		] (segmentation) {
+ 	Segmentation
+ };
+ 
+\node[	state,
+        text width = 2cm,
+		above right = 1.5cm and 2cm of segmentation] (feature1) { 
+	feature block 1
+ }; 
+ 
+ \node[	state,
+        text width = 2cm,
+        above right = 0cm and 2cm of segmentation
+		] (feature2) { 
+	feature block 2
+ }; 
+ 
+% \node[	state,
+%        text width = 2cm,
+%        below right = 0cm and 2cm of segmentation
+%		] (feature3) { 
+%	feature block
+% }; 
+
+\node[	
+    text width = 2cm,
+    below right = 0cm and 2cm of segmentation,
+    align=center
+	] (dots) { 
+	\centering
+    $\vdots$
+}; 
+
+ 
+ \node[	state,
+        text width = 2cm,
+        below right = 1.5cm and 2cm of segmentation
+		] (feature4) { 
+	feature block $n_s$
+ }; 
+ 
+
+ 
+ \node[ circle,
+        inner sep = 0.2cm,
+        line width = 1pt,
+        draw=black!100,
+        right of = segmentation,
+        node distance = 8 cm] (gp) {
+ 
+        GP
+};
+
+\node[right of = gp, node distance = 2 cm](arrow-gp){};
+ 
+  
+\path 	
+        (arrow-trajectory)  edge 
+                            node[anchor = south]{$\bm{\tau}$} 
+                                    (segmentation)  
+ 	    (gp)          edge
+ 	                        node[anchor = south]{$R(\bm{\tau})$}	 
+ 	                                (arrow-gp); 
+ 	                                
+\draw [ ->] 
+(segmentation.north)
+|- node [near end, anchor = south] {$\bm{\tau}^{(1)}$} (feature1.west);
+
+\draw [ ->]
+(segmentation.north)
+|- node [near end, anchor = south] {$\bm{\tau}^{(2)}$}  (feature2.west);
+
+%\draw [ ->]
+%(segmentation.south)
+%|- node [near end, anchor = south] {$\bm{\tau}^{(3)}$} (feature3.west);
+
+\draw [ ->]
+(segmentation.south)
+|- node [near end, anchor = south] {$\bm{\tau}^{(n_s)}$} (feature4.west);
+
+\draw [ ->]
+(feature1.east)
+-| node [near start, anchor = south] {$\bm{\phi}^{(1)}$} (gp.north);
+
+\draw [ ->]
+(feature2.east)
+-- ++(1, 0)
+-- node [pos = 0.01, anchor = south] {$\bm{\phi}^{(2)}$} (gp.north west);
+
+%\draw [ ->]
+%(feature3.east)
+%-- ++(1, 0)
+%-- node [pos = 0.01, anchor = south] {$\bm{\phi}^{(3)}$} (gp.south west);
+
+\draw [ ->]
+(feature4.east)
+-| node [near start, anchor = south] {$\bm{\phi}^{(n_s)}$} (gp.south);
+ 		
+\end{tikzpicture}
+\caption{Segmented reward model}
+\label{fig:unsegmented-rm}
+\end{figure}
+
+\section{Gaussian process}
+\label{sec:GP}
+We will use a Gaussian process \cite{rasmussen2006book} to identify the mapping between reward features $\bm{\phi}(\bm{\tau})$ and the return over a trajectory. This mapping is disturbed by expert noise $\epsilon$, which is considered to be a zero mean Gaussian white noise with standard deviation $\sigma_E$. 
+
+\begin{equation*}
+R(\bm{\phi}(\bm{\tau})) = f(\bm{\phi}(\bm{\tau})) + \epsilon_E
+\end{equation*}
+
+For notation simplicity, we will refer to $\bm{\phi}(\bm{\tau})$ as $\bm{\phi}$. In the demonstration set $\mathcal{D}$, we have a number of demonstrated trajectories with their respective feature outcomes and ratings. We can collect the feature outcomes of all \emph{measured} trajectories in $\mathcal{D}$ to form a matrix $\matr{\Phi}_m = \begin{bmatrix} \bm{\phi}_{m_1} \cdots \bm{\phi}_{m_n} \end{bmatrix}$.  Also, there is a set of input inference points $\matr{\Phi}_{*}$ at which we would like to know the return. Similarly, we will refer to the expert rating $R(\bm{\phi})$ simply as $R$. The set of measured ratings that are present in $\mathcal{D}$ can be collected into a vector $\bm{R}_m = \begin{bmatrix} R_{m_1} \cdots R_{m_n} \end{bmatrix}^T$.
+
+In order to identify the mapping described above a Gaussian process is used, which is a statistical non-parametric model. The mathematically correct description of a GP is as follows:
+
+\newtheorem{mydef}{Definition}
+\begin{mydef}
+A Gaussian process is a collection of random variables, any finite number of which have a joint Gaussian distribution \cite{rasmussen2006book}. 
+\end{mydef}
+
+However a more intuitive definition is to describe it as a distribution over functions. From this distribution, the most likely function, called the posterior mean function, can be evaluated at inference points which gives us an approximation of the mapping at those points. Besides providing the most likely value at some inference points, GPs can also provide the approximated variance at these inference points, expressed in the posterior covariance function.
+
+In order to construct this distribution, a number of assumptions have to be made. First off, we have to design a prior covariance function in which we will specify what class of functions we consider and which functions to rule out. Optionally, we could define a prior mean function which tells the GP which function within the considered set is the most likely.
+
+Finally we need a set of training points, in our case the set of demonstrations $\mathcal{D}$. Based on the prior assumptions and the set of training points, the posterior distribution can be calculated (see Section \ref{sec:gp-posterior}).
+
+
+\subsection{Prior functions}
+
+The design of a GP is determined for the most part by the choice of prior functions. In the construction of the prior mean and prior covariance function we incorporate all prior knowledge about the mapping that we would like to identify with the GP. 
+
+\paragraph{Prior covariance function}
+The covariance function, also known as the \emph{kernel}, that we choose determines what class of functions we consider likely by the mapping that we are looking for and eliminates all other possible functions. Since we do not have any prior knowledge of the reward function, we cannot be too restrictive in our choice. If we choose the squared error covariance function, we still have a broad class of function under consideration, namely all differentiable functions. The squared error covariance function is defined as follows:
+
+\begin{equation}
+k(\bm{\phi}, \bm{\phi}') = \lambda_f^2 \exp \left(-\frac{1}{2} \left(\bm{\phi}-\bm{\phi}' \right)^T \matr{\Lambda}_x \left(\bm{\phi}-\bm{\phi}' \right) \right)
+\label{eq:SE}
+\end{equation}
+
+The covariance function relates two input vectors $\bm{\phi}$ and $\bm{\phi}'$ to a measure of correlation. In case of the squared error function, we can easily observe that input vectors that are close to each other obtain a high value. 
+
+Equation \ref{eq:SE} also contains a few constants, namely $\lambda_f^2$ and matrix $\matr{\Lambda}_x$. These constants are called hyperparameters. The so called signal variance, $\lambda_f^2$, reflects how much variance is present in the mapping itself. Setting a high value for $\lambda_f^2$ indicates that we expect a high level of variation in the function. 
+
+Matrix $\matr{\Lambda}_x$ is a diagonal matrix, whose elements represent length scales. 
+
+\begin{equation*}
+\matr{\Lambda}_x = 
+\begin{pmatrix}
+  \lambda_{x_1}^{-2} & 0 & \cdots & 0 \\
+  0 & \lambda_{x_2}^{-2} & \cdots & 0 \\
+  \vdots  & \vdots  & \ddots & \vdots  \\
+  0 &0 & \cdots & \lambda_{x_n}^{-2} 
+ \end{pmatrix}
+\end{equation*} 
+
+There is a length scale $\lambda_{x_i}$ for every input dimension. The value of each $\lambda_{x_i}$ indicates how much we expect that particular input dimension to have influence on the mapping.
+
+Let us assume that we have two sets of input vectors stored in a matrices $\matr{\Phi}_m$ and $\matr{\Phi}_{*}$. The covariance matrix of according to $\matr{\Phi}$ would look as such:
+
+\begin{equation}
+\matr{K}(\matr{\Phi}_{m}, \matr{\Phi}_{*}) = 
+\begin{bmatrix}
+k(\bm{\phi}_{m_1}, \bm{\phi}_{*_1}) & \cdots & k(\bm{\phi}_{m_1}, \bm{\phi}_{*_n*}) \\
+\vdots & \ddots & \vdots \\
+k(\bm{\phi}_{m_n}, \bm{\phi}_{*_1}) & \cdots & k(\bm{\phi}_{m_n}, \bm{\phi}_{*_n*}) 
+\end{bmatrix}
+\end{equation}
+
+In order to simplify notation we will refer to $\matr{K}(\matr{\Phi}_{m}, \matr{\Phi}_{*})$ as $\matr{K}_{m*}$. Furthermore we will refer to its transpose variant as $\matr{K}(\matr{\Phi}_{*}, \matr{\Phi}_{m}) = \matr{K}_{*m} = \matr{K}_{m*}^T$. We also need a covariance matrix which correlates the individual measurement points with each other: $\matr{K}(\matr{\Phi}_{m}, \matr{\Phi}_{m}) = \matr{K}_{mm}$. The last covariance matrix we need is one that correlates the inference points with each other: $\matr{K}(\matr{\Phi}_{*}, \matr{\Phi}_{*}) = \matr{K}_{**}$.
+
+\paragraph{Prior mean function}
+Besides choosing a prior covariance function, a prior mean function also has to be chosen. The prior mean function indicates what function we find to be the most likely. As we do not have any knowledge of the relation between the features and the return, we cannot specify any function to be the most likely a priori. This can easily be specified by setting the prior mean function as a zero function: $\mu(\bm{\phi}) = 0$.
+
+\paragraph{Prior measurement noise variance}
+The last prior element we need to determine is the measurement noise variance. In case our application, this hyper parameter directly represents the expert rating noise $\sigma_E$. As before, we do not take into account any prior knowledge about this value, since we do not know anything about the expert beforehand. However, as we will see in Section \ref{sec:hyper-opt}, we can approximate this hyper parameter on the fly, using the set of demonstration data we collect during learning.
+
+\subsection{Posterior functions}
+\label{sec:gp-posterior}
+Now that we have determined our prior mean and covariance function, we can construct the posterior function distribution. We assume for now that we have the correct hyper parameters. In order to compute a posterior distribution, we must apply Bayes rule:
+
+\begin{equation*}
+p(\text{Hypothesis} | \text{Evidence}) = \frac{p(\text{Evidence} | \text{Hypothesis}) \cdot p(\text{Hypothesis}) }{p(\text{Evidence})}
+\end{equation*}
+
+Where the left side term, also called the posterior, is the distribution we want to obtain. In the nominator, two terms are present: the likelihood and the prior. The denominator term is called the marginal likelihood. 
+
+Let us assume that we have a set of demonstrations $\mathcal{D}=\{\bm{R}_m, \matr{\Phi}_m\}$ at our disposal and we would like to know the posterior distribution of some set of inference points $\{\bm{R}_{*}, \matr{\Phi}_{*}\}$. According to Bayes rule, we should solve the following: 
+
+\begin{equation*}
+p(\bm{R}_{*} | \matr{\Phi}_{*}, \bm{R}_m, \matr{\Phi}_m) = \frac{p(\bm{R}_m, \matr{\Phi}_m | \bm{R}_{*}, \matr{\Phi}_{*}) \cdot p(\bm{R}_{*}, \matr{\Phi}_{*})}{p(\bm{R}_m, \matr{\Phi}_m | \matr{\Phi}_{*})}
+\end{equation*}
+
+According to Bayes rule we can thus merge the prior assumptions with our measurement data to obtain a posterior distribution. If we assume that our measurement data is recorded with a zero mean Gaussian measurement noise, the posterior is again a Gaussian distribution.
+
+\begin{equation*}
+p \left( 
+\begin{bmatrix}
+\bm{R}_m \\ \bm{R}_{*}
+\end{bmatrix} 
+| \matr{\Phi}_{*}, \bm{R}_m, \matr{\Phi}_m 
+\right)
+\sim
+\mathcal{N}
+\left(
+\begin{bmatrix}
+\bm{\mu}_m \\ \bm{\mu}_{*}
+\end{bmatrix}
+, 
+\begin{bmatrix}
+\matr{\Sigma}_{mm} & \matr{\Sigma}_{m*} \\ \matr{\Sigma}_{*m} & \matr{\Sigma}_{**}
+\end{bmatrix}
+\right)
+\end{equation*}
+
+As can be seen, the posterior of a Gaussian process provides an estimate of the inference points, expressed in $\bm{\mu}_{*}$ as well as an estimate of the accuracy, expressed in covariance matrix $\Sigma_{**}$. The values for $\bm{\mu}$ and $\matr{\Sigma}$ can be expressed in terms of the prior functions and the measurement values.
+
+\begin{gather}
+\begin{bmatrix}
+\bm{\mu}_{m} \\
+\bm{\mu}_{*}
+\end{bmatrix} 
+=
+\begin{bmatrix}
+\matr{K}_{mm} (\matr{K}_{mm} + \matr{\Sigma}_f)^{-1} \bm{R}_m \\
+\matr{K}_{*m} (\matr{K}_{mm} + \matr{\Sigma}_f)^{-1} \bm{R}_m
+\end{bmatrix} \\
+\begin{bmatrix}
+\matr{\Sigma}_{mm} & \matr{\Sigma}_{m*} \\
+\matr{\Sigma}_{*m} & \matr{\Sigma}_{**} 
+\end{bmatrix} 
+=
+\begin{bmatrix}
+\matr{K}_{mm} (\matr{K}_{mm} + \matr{\Sigma}_f)^{-1} \matr{\Sigma}_f 
+& \matr{\Sigma}_f (\matr{K}_{mm} + \matr{\Sigma}_f)^{-1} \matr{K}_{m*}\\
+\matr{K}_{*m} (\matr{K}_{mm} + \matr{\Sigma}_f)^{-1} \matr{\Sigma}_f 
+& \matr{K}_{**} - \matr{K}_{*m}(K_{mm}+\Sigma_f)^{-1} \matr{K}_{m*}
+\end{bmatrix}
+\end{gather}
+
+
+\subsection{Hyper parameter optimization}
+\label{sec:hyper-opt}
+So far, we assumed that we knew the true values of each hyper parameter we use. In general, this is not the case. The choice of hyper parameter value is important when using GPs for inference. If the values of the hyper parameters are not chosen carefully, the data fit can turn out be really poor. For some choices of hyper parameters, the data fit can also be too strict. In that case, the prediction on inference points have poor results as well because the GP is overtrained.
+
+There are several hyper parameters we need to determine: $\lambda_f$, $\matr{\Lambda}_x$ and $\sigma_E$. For simplicity, we will write these hyper parameters as $\bm{\theta}$. 
+
+Since we cannot calculate the ``true'' hyper parameters, we look at which combination of hyper parameters is the most likely. We can express the likelihood of $\bm{\theta}$, which leads to the following optimization problem:
+
+\begin{equation*} 
+\max_{\bm{\theta}} p(\bm{\theta} | \bm{R}_m, \matr{\Phi}_m) 
+\end{equation*}
+ 
+Using Bayes rule we can write this as probability as follows:
+
+\begin{equation}
+p(\bm{\theta} | \bm{R}_m, \matr{\Phi}_m) = \frac{p(\bm{R}_m | \bm{\theta}, \matr{\Phi}_m) \cdot p(\bm{\theta} | \matr{\Phi}_m)}{p(\bm{R}_m | \matr{\Phi}_m)}
+\end{equation}
+
+Since the marginalization term in the denominator does not depend on $\bm{\theta}$, we can simply ignore it. In the nominator we find a likelihood term $p(\bm{R}_m | \bm{\theta}, \matr{\Phi}_m)$ and a prior probability $p(\bm{\theta} | \matr{\Phi}_m)$. If we examine the likelihood term, we find that it equals the posterior distribution of the GP using $\bm{\theta}$ as hyper parameter. Finally, if we look at the prior probability $p(\bm{\theta} | \matr{\Phi}_m)$, we first observe that we can ignore $\matr{\Phi}_m$, since the probability of our hyper parameters being likely does not depend on the measurement inputs. If we assume the probability for each set of hyper parameters $p(\bm{\theta})$ is equal, this term can be treated as a constant in our optimization problem. We can thus express our posterior distribution as follows:
+
+\begin{equation*}
+p(\bm{\theta} | \bm{R}_m, \matr{\Phi}_m) \propto \frac{1}{\sqrt{ |2 \pi (\matr{K}_{mm}+\matr{\Sigma}_f) | }} \exp \left( -\frac{1}{2} \bm{R}_m^T (\matr{K}_{mm}+\matr{\Sigma}_f)^{-1} \bm{R}_m \right)
+\end{equation*}
+
+Maximizing over this expression directly is difficult, due to the exponential term. However, taking the logarithm of this expression does not change the optimization problem. Doing so results in the following:
+
+\begin{equation}
+\log (p) \propto -\frac{n_m}{2} \log (2 \pi) -\frac{1}{2} \log | \matr{K}_{mm} + \matr{\Sigma}_f | -\frac{1}{2} \bm{R}_m^T (\matr{K}_{mm}+\matr{\Sigma}_f)^{-1} \bm{R}_m
+\end{equation}
+
+The first term is a normalization constant. Because this term does not depend on $\bm{\theta}$, we can ignore it during optimization. The last term is called the data fit, which denotes how well our hyper parameters can explain the observed data. We could easily maximize this term by giving $\matr{K}_{mm}+\matr{\Sigma}_f$ extremely high values. This comes down to assuming so much noise that every kind of measurement fits within the model. To prevent this from happening during optimization, the second term penalizes high values for $\matr{K}_{mm}+\matr{\Sigma}_f$. This term is called the complexity term. If we combine the data fit term and the complexity term into our optimization function, we are able to obtain $\bm{\theta}$ for which the data fit is as high as possible with a low risk of overfitting.
+
+We can maximize the above mentioned optimization function using a gradient descent approach. Since we chose a prior covariance function which is differential with respect to its hyper parameters, we can take the gradient of our cost function analytically. To be more specific, we use the Polack-Ribiere flavour of conjugate gradient descent in combination with a line search method to optimize for $\bm{\theta}$.
+
+%\paragraph{Initial parameter estimation}
+% maybe include. not sure yet.
+
+\section{Demonstration acquisition}
+\label{sec:acquisition}
+An important aspect of the ARL method is the decision whether or not the reward model needs to be improved by querying the expert. In order to sufficiently learn the reward function, enough expert queries are necessary, but we would like to keep the number of expert queries to a minimum, as it would be too costly to learn new movements otherwise. In each iteration a batch of rollouts is sampled (see Algorithm \ref{alg:ARL}). If there are rollouts present in this new batch that are interesting for the reward model, we should demonstrate this rollout for the expert. The ultimate goal of active reward learning is to reach the optimum of an unknown reward function by strategically selecting points of function evaluation (expert queries). This problem is also known as Bayesian optimization. 
+
+The decision whether or not to query the expert is captured in the acquisition function $u( \bm{\phi} (\bm{\tau}))$. The acquisition function maps the features of a rollout to a number which indicates how interesting this particular rollout is for querying: $u: \bm{\tau} \rightarrow \mathbb{R}$. According to this value we can decide whether or not to demonstrate a particular rollout. In case of active reward learning, we will only demonstrate rollouts whose acquisition value is higher than a certain threshold, provided that we did not already query that particular rollout. 
+
+The GP provides us with some useful information regarding the return of new rollouts. First off, the GP provides a ``best estimate'' of the return of a rollout in the form of the mean function: $\mu(\bm{\phi}(\bm{\tau}))$. Besides that, the GP also provides an estimate of its own variance: $\sigma (\bm{\phi}(\bm{\tau}))$. We can interpret the variance as a confidence level of the accuracy of the model.  
+
+A number of different acquisition functions have been proposed in literature in the field of Bayesian optimization \cite{hoffman2011portfolio}. 
+
+\paragraph{Probability of Improvement (PI)}
+This acquisition function chooses the rollout that has the highest probability of improvement, according to a normal probability distribution \cite{kushner1964}. If we denote $\mu^+ = \max_{\bm{\tau} \in \mathcal{T}} \mu (\bm{\phi} (\bm{\tau}))$, the probability of improvement can be defined using the normal distrubtion: $p(\mu( \bm{\phi} (\bm{\tau})) \geq \mu^+) = \Phi \left( \frac{\mu( \bm{\phi} (\bm{\tau})) - \mu^+ -\xi}{\sigma( \bm{\phi} (\bm{\tau}))}\right)$. Where the variable $\xi$ denotes an exploration parameter and $\Phi$ denotes the normal cumulative distribution function.
+
+\paragraph{Expected Improvement (EI)}
+Instead of maximizing the probability that the cost function will improve, the expected improvement focuses how much the cost function will improve. This subtle difference results in an acquisition function that is a little less greedy in its search towards optima than PI. If we define $d = \mu( \bm{\phi} (\bm{\tau})) - \mu^+ -\xi$, we can work out an expression for expected improvement as such: 
+
+\begin{equation}
+u(\bm{\phi} (\bm{\tau})) =
+  \begin{cases}
+    d \Phi ( ^{d}/_{\sigma( \bm{\phi} (\bm{\tau}))} ) +\sigma( \bm{\phi} (\bm{\tau})) \phi(^{d}/_{\sigma( \bm{\phi} (\bm{\tau}))})  & \quad \text{if }  \sigma( \bm{\phi} (\bm{\tau})) > 0\\
+    0  & \quad \text{if } \sigma( \bm{\phi} (\bm{\tau})) = 0\\
+  \end{cases}
+\end{equation}
+
+Where the function $\Phi (\cdot)$ and $\phi (\cdot)$ denote the CDF and the PDF of the normal distribution. 
+
+
+\paragraph{Upper confidence bound (UCB)}
+The upper confidence bound acquisition function uses the mean and standard deviation directly to define the acquisition value: $u(\bm{\tau}) = \mu( \bm{\phi} (\bm{\tau})) + \sqrt{v \beta} \sigma( \bm{\phi} (\bm{\tau}))$.
+Where $v$ denotes a hyper parameter and $\beta$ is used as a learning rate variable.
+
+\paragraph{GP Hedge}
+The GP Hedge acquisition function is built upon a portfolio of different acquisition functions. It basically combines the results of PI, EI and UCB in order to give the best estimate of $u(\bm{\tau})$. This method, along with the above mentioned methds work well in the field of Bayesian optimization. However, in the next section a specific acquisition function, designed for ARL, will be explained.
+
+
+\subsection{Expected policy divergence (EPD)}
+\label{sec:epd}
+The above mentioned acquisition functions work well for Bayesian optimization problems. However, the active reward learning differs slightly from Bayesian optimization problems. This difference has been exploited to create a novel acquisition function designed for active reward learning: expected policy divergence \cite{Daniel2015}. If we look at the Bayesian optimization acquisition functions, one assumptions holds for all: the main purpose is to optimize the objective function (reward function in our case). In active reward learning we are not primarily interested in the reward function but also in the resulting policy. Taking the policy into account makes sense when designing an acquisition function. We should not demonstrate any rollouts if the expected effect on the policy is very small. 
+
+In Figure \ref{fig:epd} a visual representation of the steps taken in expected policy divergence is shown. We start with a set of trajectories $\mathcal{T}$, one of which, $\bm{\tau}$, we would like to evaluate in the acquisition function. Furthermore, we have a set of demonstrated trajectories $\mathcal{D}$ on which the reward function $\mathcal{GP}(\cdot | \mathcal{D})$ is based and a policy $\pi$.
+
+First off we can calculate the reward of each trajectory in $\mathcal{T}$ according to the current reward model. We will denote the vector of resulting rewards from the reward model $\mathcal{GP}(\mathcal{T}|\mathcal{D})$ as $\tilde{\bm{R}}$. After obtaining the return for each trajectory, we can use the update rule of the reinforcement learning agent to calculate the resulting policy, which we will call $\tilde{\pi}$.
+
+After evaluating the unmodified policy update, we look at what happens if trajectory $\bm{\tau}$ is queried. If we evaluate the current reward model we receive $\mu(\bm{\tau})$ and $\sigma (\bm{\tau})$, the mean and variance of the GP for $\bm{\tau}$ as input. The mean of $\bm{\tau}$ can be interpreted as a ``best estimate'' of the return while the variance can be interpreted as the ``confidence'' that we have that this is the correct return. It also tells us what rating we expect the expert to give trajectory $\tau$. From this information we determine two sigma points: $s_+ = \mu + \sigma$, $s_- = \mu - \sigma$. We can extend the current set with one of these sigma points to obtain a new, extended reward model. After extending the reward model we evaluate the extended GP for each trajectory in $\mathcal{T}$ to obtain the return vector $\bm{R}^* = \mathcal{GP}(\mathcal{T}|\bm{D}^*)$. We can also calculate the resulting policy according to the new return values, denoted by $\pi^*$. Now that we have the two different policies we want to compare, we calculate Kullback-Leibler divergence over the resulting policies $\pi^*$ and $\tilde{\pi}$. Note that we repeat this procedure twice, since we have two sigma points to evaluate and take the average result as final value for $u(\bm{\tau})$.
+
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[->, >=stealth']
+
+\node[  state] (compare) {
+ 
+		compare
+};
+
+\node[  state,
+        text width = 2.5 cm,
+        above of = compare,
+        node distance = 3 cm] (rlupdateori) {
+ 
+		RL policy update
+};
+
+\node[  state,
+        left of = rlupdateori,
+        minimum width = 2 cm,
+        node distance = 6 cm] (rmori) {
+ 
+		$\mathcal{GP}(\mathcal{T}|\mathcal{D})$
+};
+
+\node[  state,
+        text width = 2.5 cm,
+        below of = compare,
+        node distance = 3 cm] (rlupdateext) {
+ 
+		RL policy update
+};
+
+\node[  state,
+        text width = 2.5 cm,
+        left of = rlupdateext,
+        node distance = 4 cm] (rmext) {
+ 
+		$\mathcal{GP}(\mathcal{T}|\mathcal{D}^*)$
+};
+
+\node[  state,
+        left of = rmext,
+        node distance = 4 cm] (dset) {
+ 
+		$\mathcal{D}^* = \mathcal{D}\cup\{\mu \pm \sigma, \tau \}$
+};
+
+\node[  state,
+        left of = dset,
+        node distance = 4 cm] (rmnonext) {
+ 
+		$\mathcal{GP}(\bm{\tau}|\mathcal{D})$
+};
+
+\node[  circle,
+        inner sep = 1cm,
+        line width = 1pt,
+        draw=black!100,
+        above of = rmnonext,
+        node distance = 3 cm] (batch) {
+ 
+        $\mathcal{T}$
+};
+
+\node[  circle,
+        inner sep = 0.2cm,
+        line width = 1pt,
+        draw=black!100,
+        above of = rmnonext,
+        node distance = 2 cm] (trajectory) {
+ 
+        $\tau$
+};
+
+
+\node[  right of = compare,
+        node distance = 3cm] (arrow) {
+ 
+        
+};
+ 
+\path 	(rlupdateori) 		edge    node[anchor = west]	
+ 							{$\tilde{\pi}$}	            (compare)
+        (rmori)             edge    node[anchor = south]	
+ 							{$\tilde{\bm{R}}$}	        (rlupdateori)
+ 		(rlupdateext) 	    edge    node[anchor = west]	
+ 							{$\pi^*$}	                (compare) 	
+ 		(rmext)             edge    node[anchor = south]	
+ 							{$\bm{R}^*$}	            (rlupdateext)
+ 		(rmnonext)          edge    node[anchor = south]	
+ 							{$\mu$, $\sigma$}	        (dset)
+ 		(dset)              edge    node[anchor = south]	
+ 							{$\mathcal{D}^*$}	        (rmext)
+ 		(trajectory)        edge                        (rmnonext)
+ 		(batch)             edge [bend left = 20]       (rmext)
+ 		(batch)             edge [bend left = 20]       (rmori)
+ 		(compare)           edge    node[anchor = south]
+ 		                    {$u(\bm{\tau})$}            (arrow);
+ 		
+ 		
+\end{tikzpicture}
+\caption{Expected policy divergence viewed schematically}
+\label{fig:epd}
+\end{figure}
+
+
+\paragraph{Policy comparison}
+Since we use a stochastic policy, it makes sense to compare the two resulting policies $\pi^*$ and $\tilde{\pi}$ using a stochastic measure. A commonly used method for comparing two stochastic variables is the Kullback-Leibler divergence. This measure represents the relative entropy between two probability distributions. We would like to maximize the expected value of the KL divergence between $\pi^*$ and $\tilde{\pi}$:
+
+\begin{equation*}
+    \E_{p(R|\bm{\tau}, \mathcal{D})} D_{\text{KL}}(\pi(\bm{\theta})^*||\tilde{\pi} (\bm{\theta})) = \iint \pi^* (\bm{\theta}) \log \left( \frac{\pi^* (\bm{\theta})}{\tilde{\pi} (\bm{\theta})} \right) d \bm{\theta} d R
+\end{equation*}
+
+Unfortunately, we cannot solve this integral in closed form. Instead we have to resort to sample based methods. However, we should avoid Monte-Carlo sampling to solve this particular problem as sampling is a very expensive operation in our application. Instead we will use the limited set of samples we already obtained. We could for example use the policy samples $\bm{\theta}_i$ that were used in sampling the rollouts in $\mathcal{T}$, to compute a sample-based approximation:
+
+
+\begin{equation*}
+    \text{KL}(\pi^* (\bm{\theta})||\tilde{\pi} (\bm{\theta})) \approx \frac{1}{N} \sum_{i=1}^N \frac{\pi^* (\bm{\theta}_i)}{\pi (\bm{\theta}_i)} \log \frac{\pi^* (\bm{\theta}_i)}{\tilde{\pi}(\bm{\theta}_i)}
+\end{equation*}
+
+In this approximation, we denote $\pi$ as the original policy, where the samples were drawn from. We use importance sampling to correct for the sampling bias. This approximation can be numerically unstable, especially when the number of parameters in $\bm{\theta}$ is high (e.g. greater than 20).
+
+Another alternative is to assign a weight $\gamma_i$ each sample in $\mathcal{T}$ and calculate the Kullback-Leibler divergence directly over the weights. We denote $\tilde{\gamma}_i$ as the weight used for trajectory $\bm{\tau}_i$ in the policy update. Similarly, we denote $\gamma^*_i$ as the weight for trajectory $\bm{\tau}_i$ in the alternative policy update. The $\text{PI}^{BB}$ algorithm already provides such a weight for us, which is given in Equation \ref{eq:PIBBProb}.
+
+Combining the weights of $\gamma^*$ and $\tilde{\gamma}$ leads to the following approximation of the Kullback-Leibler divergence:  
+
+\begin{equation*}
+    \text{KL}(\pi^* (\bm{\theta})||\tilde{\pi} (\bm{\theta})) \approx \sum_{i=1}^N \gamma^*_i \log \frac{\gamma^*_i}{\tilde{\gamma_i}}
+\end{equation*}
+
+\section{Summary}
+
+% describe the arl short. mention reward learning, gp, epd, and policy learning
+% brag about time segmentation in the feature functions
+
+In this chapter we have described an adaption of the active reward learning framework, designed to learn simple end effector movements using expert feedback. We extend the design of feature functions to enable trajectory segmentation. Given a set of ratings over full trajectories, this new algorithm is able distinguish features in relevant and non-relevant segments of the trajectory, which is a property that has not been described in literature.
+
+In each iteration of the algorithm we sample a batch of rollouts that we use for both policy learning and reward learning. 
+
+In order to achieve reward learning we use a Gaussian process, a regression technique that is both able to estimate a function value as well as the variance of its estimate. As inputs for the Gaussian process we construct a set of time segmented feature functions containing the average $x$ and $y$ position of the end effector and (optionally) the variance of these coordinates. 
+
+Every iteration, the acquisition function is evaluated for each sampled rollout, in order to determine which samples are interesting for demonstration. In each evaluation of the acquisition function we obtain the variance of the reward estimate from the GP. This variance is then used to calculate whether we expect the policy of the reinforcement learning agent to change if we would demonstrate the respective sample. Only samples that obtain a high acquisition value are demonstrated.
+
+After updating the reward function, the Gaussian process is evaluated for every sample in that was obtained earlier to calculate the reward. After that the policy of the reinforcement learning agent is updated according to the $\text{PI}^{BB}$ update rules. This way, the active reward learning learns the reward model and the policy in a hybrid fashion.
+
+ In Chapter \ref{chap:SARL}, we will adapt the algorithm described in this chapter even further by including segment specific expert feedback. This new algorithm will be able to distinguish relevant segments in the trajectory and demonstrate trajectory segments in order to improve the performance in these areas. 
+
+% Bibliography
+%\bibliographystyle{ieeetr}
+%\printbib{bibliography}
+
+\end{document}

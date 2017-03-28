@@ -1,0 +1,46 @@
+\documentclass[mscThesis.tex]{subfiles}
+
+\begin{document}
+
+\chapter{Conclusions and recommendations}
+In this thesis, a time segmented variant of active reward learning is developed and applied as a machine learning algorithm to teach simple end effector trajectories to robotic arms. In this chapter we will give an overview of what has been constructed in this work as well as conclusions on the results based on the research questions formulated in Section \ref{sec:research-goals}. Section \ref{sec:conclusions} will give a summary of the thesis per chapter and will give the conclusions of the final results. After that, Section \ref{sec:recommendations} will give directions for further research based on the results and conclusions of this work.
+
+% it is possible to 
+\section{Conclusions}
+\label{sec:conclusions}
+
+%chapter 1
+In Chapter \ref{chap:Int} the we observed the necessity of machine learning methods for robotics as an alternative for hard coded robotic programs. We proposed to extend the method of active reward learning, an algorithm able to learn robotic movements by using human expert ratings. This method combines the concept of reinforcement learning with reward learning in a hybrid fashion. Two proposals are proposed in which this framework is extended to use information of trajectory segments, instead of complete trajectories.
+
+Chapter \ref{chap:RL} continues by describing the reinforcement learning framework. We reviewed how reinforcement learning algorithms can be used as adaptive controllers that maximize a specific reward function. It is observed that using reinforcement learning is challenging in the field of robotics and that most successful examples of reinforcement learning controllers use policy learning algorithms. A black box policy learner called $\text{PI}^{BB}$ is described in detail for use in Chapter \ref{chap:ARL} and \ref{chap:SARL}.
+
+In Chapter \ref{chap:Reward} the concept of reward learning is described as the process of obtaining the reward function from an expert. Several methods for using experts as a source of information are reviewed. The majority of these methods are not suited to be applied to robotics as they require to many rollouts. The active reward learning method is different from other reward learning methods as it uses the expert to give feedback on demonstrated rollouts, rather than generating (sub) optimal rollouts itself. Due to the hybrid method of learning both the reward function as the resulting policy, this methods can be used in the field of robotics.
+
+%chapter 3
+Chapter \ref{chap:ARL} describes the method of active reward learning in more detail. We show that a simple adaptation in the input scheme of the reward model leads to an algorithm that can distinguish features in different time segments of trajectories. Also, the Gaussian process, a stochastic machine learning method which is used as a reward model is described in detail. Reward learning is performed by extending the GP with expert ratings over demonstrated trajectories. The acquisition function determines which rollouts are interesting for demonstration based on the expected policy divergence of a rollout.
+
+In Chapter \ref{chap:SARL} we describe a more elaborate extension to the active reward learning algorithm. We show how we can implement segment specific expert querying into the active reward learning framework by constructing a different GP for each time segment that we use. We show how the concept of expected policy divergence is used to calculate an acquisition value for each trajectory segment, such that only interesting segments are demonstrated to the expert. 
+
+Finally in Chapter \ref{chap:Ex} we showed the performance of the algorithms constructed in Chapter \ref{chap:ARL} and Chapter \ref{chap:SARL}. Using a computer expert, we predicted the performance of both algorithms applied to a viapoint task and a multi objective task. The results showed that teaching these tasks should be feasible and within practical limits in terms of expert queries and number of rollouts. Overall, the single GP method described in Chapter \ref{chap:ARL} was less accurate in tracking the objectives but it used less expert queries than the algorithm described in Chapter \ref{chap:SARL}. When a human expert was used to rate the rollouts, the overall performance dropped due to expert rating noise. It was also clear that the constructed acquisition function in Chapter \ref{chap:SARL} does not achieve its intended result which is to point out interesting trajectory segments for demonstration.
+
+\section{Recommendations for further research}
+\label{sec:recommendations}
+In this work we showed how we can learn a robotic arm some simple movements using human expert queries. This approach is relatively unexplored. All though it has been applied to a real robotic application namely a grasping task, this took the expert roughly 1000 evaluations, which suggests that real world application of active reward learning is still far away. 
+
+In this thesis, we applied the active reward learning method to a much more simple task but stayed within practical limits in terms of rollouts and expert queries. But we also found caveats in our approach that might be worth investigating further. 
+
+The acquisition function shown in Chapter \ref{chap:SARL} did not function as expected. The goal of this function is to point out interesting trajectory segments from a set of samples trajectories. It turned out that the acquisition function often just focuses on one particular segment and completely ignores other segments that might be interesting. The segments that are ignored are always the segments with low rating values, which does not necessarily mean that these segments are unimportant. 
+
+There are a number of different potential solutions that can solve this problem. A simple solution for example could be to arrange small number of demonstrations on random samples, similar to policy exploration noise. Another option which is more difficult to implement more expert involvement into the algorithm. For instance the expert could point out which segments are important using weights on each different segment. Another option that could be tried is to bin the acquisition function and make the expert interrupt the learning algorithm whenever he or she likes to query a specific trajectory segment. This option could lead to useful expert feedback since the expert can comment on rollouts that the acquisition function would ignore. But another outcome could be that a lot of expert ratings turn out to be useless because the expert intervened too early and did not let the reinforcement learning agent learn to optimize the reward model.
+
+Another aspect of active reward learning that is prone to improvement is the presentation of demonstrations to the human expert. In the experiments conducted in this thesis, the demonstrated rollouts are presented as a set of graphs. This presentation worked sufficient until we tried to incorporate both average position and position variance into the reward model. The number of different features to consider is just too much if we use this presentation. Presenting extra plots to express variance could help the human expert. We know from previous works \cite{miller1956magical} that the rating bandwidth of human experts is limited but various widely depending on data presentation.
+
+% convergence hyper parameters is not guaranteed
+
+% better chance of convergence if number of data/inputs is low => multi da bomb
+
+% Bibliography
+% \bibliographystyle{ieeetr}
+% \printbib{bibliography}
+
+\end{document}
